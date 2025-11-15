@@ -64,3 +64,34 @@ Content-Type: application/json
   "text": ""
 }
 
+### AI Triage - Comprehensive analysis with interactions
+# Requires OPENAI_API_KEY in .env
+POST http://localhost:5050/api/ai/triage
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "symptoms": "Feeling nauseous and have mood swings",
+  "meds": ["ibuprofen", "rifampin"]
+}
+
+### AI Triage - No other medications
+POST http://localhost:5050/api/ai/triage
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "symptoms": "Mild headache and breast tenderness",
+  "meds": []
+}
+
+### AI Triage - Progestin-only pill
+POST http://localhost:5050/api/ai/triage
+Content-Type: application/json
+
+{
+  "pillType": "progestin_only",
+  "symptoms": "Irregular bleeding and spotting",
+  "meds": ["topiramate"]
+}
+

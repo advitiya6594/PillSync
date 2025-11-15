@@ -5,10 +5,13 @@ import dayjs from "dayjs";
 import morgan from "morgan";
 import { z } from "zod";
 import data from "./miniData.js";
-import { getRxcuiByName, getInteractionsForRxcuiList } from "./services/rxnav.js";
+import { getRxcuiByName, getInteractionsForRxcuiList, namesToRxcuis } from "./services/rxnav.js";
 import { getTargetIngredients } from "./services/contraceptives.js";
 import { getLabelSnippets } from "./services/openfda.js";
 import { classifyDiary, LABELS } from "./ai/effectClassifier.js";
+import { ensureIndex, searchRelevant } from "./ai/labelsIndexer.js";
+import { severityToLevel, scoreToLevel } from "./ai/risk.js";
+import { summarizeTriage } from "./services/chat.js";
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
@@ -264,6 +267,69 @@ app.post("/api/ai/classify-effects", async (req, res) => {
     typeof minSim === "number" ? minSim : 0.65
   );
   res.json({ ...result, labelSpace: LABELS });
+});
+
+// Helper: components of common pill types (expandable)
+const BC_COMPONENTS = {
+  combined: ["ethinyl estradiol", "levonorgestrel"],    // demo default
+  progestin_only: ["norethindrone"]                     // simple POP example
+};
+
+app.post("/api/ai/triage", async (req, res) => {
+  try {
+    const pillType = (req.body?.pillType || "combined").toLowerCase();
+    const symptoms = String(req.body?.symptoms || "").slice(0, 800);
+    const meds = Array.isArray(req.body?.meds) ? req.body.meds.slice(0, 16) : [];
+
+    // 1) Build the med list including pill components
+    const bc = BC_COMPONENTS[pillType] || BC_COMPONENTS.combined;
+    const allMeds = Array.from(new Set([...meds, ...bc]));
+
+    // 2) Interactions across all meds (ingredient-expanded)
+    const rxcuis = await namesToRxcuis(allMeds);
+    let interactions = [];
+    try {
+      const raw = await getInteractionsForRxcuiList(rxcuis);
+      interactions = raw.map(p => ({
+        a: p.drugA, b: p.drugB,
+        severity: p.severity || "",
+        level: severityToLevel(p.severity || ""),
+        source: p.source || "",
+        desc: (p.description || "").slice(0, 240)
+      }));
+    } catch { interactions = []; }
+
+    // 3) Symptom attribution via label evidence (embeddings)
+    await ensureIndex();
+    const hits = await searchRelevant(symptoms, 12);
+    // group top snippets per drug
+    const attribution = {};
+    for (const h of hits) {
+      const item = {
+        section: h.section,
+        score: +h.score.toFixed(3),
+        level: scoreToLevel(h.score),
+        text: h.text.slice(0, 220)
+      };
+      if (!attribution[h.drug]) attribution[h.drug] = [];
+      attribution[h.drug].push(item);
+    }
+    for (const d of Object.keys(attribution)) {
+      attribution[d].sort((a, b) => b.score - a.score);
+      attribution[d] = attribution[d].slice(0, 3);
+    }
+
+    // 4) Compact result for summarizer + UI
+    const result = { pillType, meds, pillComponents: bc, interactions, attribution, symptoms };
+    let summary = "";
+    if (process.env.OPENAI_API_KEY) {
+      try { summary = await summarizeTriage(result); } catch { }
+    }
+
+    res.json({ ...result, summary });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "triage error" });
+  }
 });
 
 // 404 + error handler

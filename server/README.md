@@ -15,8 +15,9 @@ USE_DEMO_DATA=true
 **Environment Variables:**
 - `PORT` - Server port (default: 5050)
 - `USE_DEMO_DATA` - Set to `true` for demo/mock data, `false` to call real APIs
-- `OPENAI_API_KEY` - OpenAI API key for AI-powered side effect classification (optional)
+- `OPENAI_API_KEY` - OpenAI API key for AI-powered features (optional)
 - `AI_MODEL_EMB` - Embedding model to use (default: `text-embedding-3-small`)
+- `AI_MODEL_CHAT` - Chat model for triage summaries (default: `gpt-4o-mini`)
 
 ## Run
 
@@ -38,6 +39,8 @@ Server at http://localhost:5050
 **GET /api/side-effects?kind=combined|progestin_only** → common effects (demo)
 
 **POST /api/ai/classify-effects** body `{ text: string, topK?: number, minSim?: number }` → AI-powered side effect classification from diary text
+
+**POST /api/ai/triage** body `{ pillType: string, symptoms: string, meds: string[] }` → Comprehensive triage with interactions + symptom attribution + AI summary
 
 ## Sample cURL
 
@@ -146,4 +149,76 @@ curl -X POST http://localhost:5050/api/ai/classify-effects \
 - `text` (required) - Diary entry or symptom description
 - `topK` (optional, default: 4) - Maximum number of labels to return
 - `minSim` (optional, default: 0.65) - Minimum similarity threshold (0-1)
+
+## AI-Powered Comprehensive Triage
+
+The `/api/ai/triage` endpoint provides a complete health assessment by combining:
+
+1. **Drug Interaction Analysis** - Uses RxNav to find interactions between medications and contraceptive ingredients
+2. **Symptom Attribution** - Uses embeddings to match reported symptoms with drug label information
+3. **AI Summary** - Generates a plain-English summary of findings (requires OpenAI API key)
+
+### Example
+
+```bash
+curl -X POST http://localhost:5050/api/ai/triage \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pillType": "combined",
+    "symptoms": "Feeling nauseous and have mood swings",
+    "meds": ["ibuprofen", "rifampin"]
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "pillType": "combined",
+  "meds": ["ibuprofen", "rifampin"],
+  "pillComponents": ["ethinyl estradiol", "levonorgestrel"],
+  "interactions": [
+    {
+      "a": "ethinyl estradiol",
+      "b": "rifampin",
+      "severity": "high",
+      "level": "high",
+      "source": "RxNav",
+      "desc": "Rifampin may decrease contraceptive effectiveness..."
+    }
+  ],
+  "attribution": {
+    "rifampin": [
+      {
+        "section": "adverse_reactions",
+        "score": 0.712,
+        "level": "medium",
+        "text": "May cause gastrointestinal upset, headache, dizziness..."
+      }
+    ],
+    "ethinyl estradiol": [
+      {
+        "section": "adverse_reactions",
+        "score": 0.803,
+        "level": "high",
+        "text": "Common adverse reactions include nausea, breast tenderness, mood changes..."
+      }
+    ]
+  },
+  "symptoms": "Feeling nauseous and have mood swings",
+  "summary": "High-level interaction detected between rifampin and contraceptive components. Nausea and mood changes may be attributed to ethinyl estradiol. This is informational only—consult your healthcare provider."
+}
+```
+
+**Parameters:**
+- `pillType` (optional, default: "combined") - Type of contraceptive: `"combined"` or `"progestin_only"`
+- `symptoms` (required) - Description of current symptoms/feelings
+- `meds` (optional, default: []) - Array of medication names being taken
+
+**How It Works:**
+1. Combines user medications with contraceptive ingredients
+2. Queries RxNav for drug-drug interactions
+3. Uses semantic search on drug labels to match symptoms
+4. Generates risk levels (high/medium/low) for both interactions and symptom attributions
+5. Optionally creates an AI-generated plain English summary
 
