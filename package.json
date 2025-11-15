@@ -1,0 +1,14 @@
+{
+  "name": "pillsync",
+  "version": "1.0.0",
+  "description": "Birth control pill cycle tracker and interaction checker",
+  "private": true,
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:*",
+    "dev:server": "npm --prefix server run dev",
+    "dev:frontend": "npm --prefix frontend run dev"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  }
+}

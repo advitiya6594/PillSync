@@ -1,0 +1,39 @@
+### Health
+GET http://localhost:5050/api/health
+
+### Cycle info
+GET http://localhost:5050/api/cycle?packType=combined_24_4&startDate=2025-11-01
+
+### Interactions (Demo Mode)
+# Set USE_DEMO_DATA=true in .env
+POST http://localhost:5050/api/check-interactions
+Content-Type: application/json
+
+{
+  "meds": ["rifampin", "St. John's Wort", "topiramate"],
+  "pillType": "combined"
+}
+
+### Interactions (Real API Mode)
+# Set USE_DEMO_DATA=false in .env
+# Tests RxNav interaction API
+POST http://localhost:5050/api/check-interactions
+Content-Type: application/json
+
+{
+  "meds": ["rifampin", "topiramate"],
+  "pillType": "combined"
+}
+
+### Interactions - No interactions expected
+POST http://localhost:5050/api/check-interactions
+Content-Type: application/json
+
+{
+  "meds": ["ibuprofen", "acetaminophen"],
+  "pillType": "combined"
+}
+
+### Side effects
+GET http://localhost:5050/api/side-effects?kind=combined
+
