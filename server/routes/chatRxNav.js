@@ -6,12 +6,20 @@ const router = Router();
 router.post("/interaction-assistant", async (req, res) => {
   try {
     const { pillType = "combined", meds = [], symptoms = "" } = req.body || {};
+    
+    // Call internal interactions endpoint
     const r = await fetch(`http://localhost:${process.env.PORT || 5050}/api/interactions/check`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pillType, meds })
     });
+    
+    if (!r.ok) {
+      const errorData = await r.json();
+      return res.status(r.status).json(errorData);
+    }
+    
     const data = await r.json();
-    if (!r.ok) return res.status(r.status).json(data);
 
     // Build deterministic answer text
     const lvl = (data.overall || "low").toUpperCase();
