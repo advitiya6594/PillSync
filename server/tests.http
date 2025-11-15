@@ -37,3 +37,30 @@ Content-Type: application/json
 ### Side effects
 GET http://localhost:5050/api/side-effects?kind=combined
 
+### AI - Classify effects from diary text
+# Requires OPENAI_API_KEY in .env
+POST http://localhost:5050/api/ai/classify-effects
+Content-Type: application/json
+
+{
+  "text": "I felt nauseous today and had a mild headache. Also feeling really bloated."
+}
+
+### AI - Classify with custom parameters
+POST http://localhost:5050/api/ai/classify-effects
+Content-Type: application/json
+
+{
+  "text": "Feeling really tired and anxious, also some mood swings",
+  "topK": 5,
+  "minSim": 0.6
+}
+
+### AI - Empty text (should return empty tags)
+POST http://localhost:5050/api/ai/classify-effects
+Content-Type: application/json
+
+{
+  "text": ""
+}
+

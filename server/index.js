@@ -8,6 +8,7 @@ import data from "./miniData.js";
 import { getRxcuiByName, getInteractionsForRxcuiList } from "./services/rxnav.js";
 import { getTargetIngredients } from "./services/contraceptives.js";
 import { getLabelSnippets } from "./services/openfda.js";
+import { classifyDiary, LABELS } from "./ai/effectClassifier.js";
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
@@ -252,6 +253,17 @@ app.get("/api/side-effects", (req, res) => {
     // TODO: Call real medical information API
     res.status(501).json({ error: "Real API not implemented yet" });
   }
+});
+
+app.post("/api/ai/classify-effects", async (req, res) => {
+  if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: "AI not configured" });
+  const { text, topK, minSim } = req.body || {};
+  const result = await classifyDiary(
+    text || "",
+    Number(topK) || 4,
+    typeof minSim === "number" ? minSim : 0.65
+  );
+  res.json({ ...result, labelSpace: LABELS });
 });
 
 // 404 + error handler

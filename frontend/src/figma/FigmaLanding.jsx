@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import CycleBridge from "../bridge/CycleBridge.jsx";
 import EffectsBridge from "../bridge/EffectsBridge.jsx";
 import InteractionsBridge from "../bridge/InteractionsBridge.jsx";
+import DiaryTagger from "../components/DiaryTagger.jsx";
 import { PillReminder } from "./PillReminder";
 import { FertilityCalendar } from "./FertilityCalendar";
 import { FloatingShapes } from "./ArtisticIllustration";
@@ -217,6 +218,15 @@ export default function FigmaLanding() {
                   <EffectsBridge packType={packType} isActivePill={currentDay <= 24} packDay={currentDay} className="text-white" />
                 </div>
               </div>
+              
+              {/* AI Diary Tagger */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <DiaryTagger />
+              </motion.div>
             </TabsContent>
 
             <TabsContent value="medications">
