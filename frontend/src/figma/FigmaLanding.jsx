@@ -5,6 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import CycleBridge from "../bridge/CycleBridge.jsx";
 import EffectsBridge from "../bridge/EffectsBridge.jsx";
 import InteractionsBridge from "../bridge/InteractionsBridge.jsx";
+import DiaryTagger from "../components/DiaryTagger.jsx";
+import AiInteractionAssistant from "../components/AiInteractionAssistant.jsx";
 import { PillReminder } from "./PillReminder";
 import { FertilityCalendar } from "./FertilityCalendar";
 import { FloatingShapes } from "./ArtisticIllustration";
@@ -217,9 +219,18 @@ export default function FigmaLanding() {
                   <EffectsBridge packType={packType} isActivePill={currentDay <= 24} packDay={currentDay} className="text-white" />
                 </div>
               </div>
+              
+              {/* AI Diary Tagger */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <DiaryTagger />
+              </motion.div>
             </TabsContent>
 
-            <TabsContent value="medications">
+            <TabsContent value="medications" className="space-y-6">
               {/* MedicationChecker replaced with InteractionsBridge */}
               <div className="bg-gradient-to-br from-[#2D3561]/90 to-[#3d4575]/90 backdrop-blur-md rounded-2xl p-6 shadow-xl border-2 border-[#7DD3E8]/30">
                 <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
@@ -228,6 +239,15 @@ export default function FigmaLanding() {
                 </h3>
                 <InteractionsBridge className="text-white" />
               </div>
+
+              {/* AI Interaction Assistant */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <AiInteractionAssistant />
+              </motion.div>
             </TabsContent>
 
             <TabsContent value="calendar">

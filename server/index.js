@@ -5,9 +5,15 @@ import dayjs from "dayjs";
 import morgan from "morgan";
 import { z } from "zod";
 import data from "./miniData.js";
-import { getRxcuiByName, getInteractionsForRxcuiList } from "./services/rxnav.js";
+import { getRxcuiByName, getInteractionsForRxcuiList, namesToRxcuis } from "./services/rxnav.js";
 import { getTargetIngredients } from "./services/contraceptives.js";
 import { getLabelSnippets } from "./services/openfda.js";
+import { classifyDiary, LABELS } from "./ai/effectClassifier.js";
+import { ensureIndex, searchRelevant } from "./ai/labelsIndexer.js";
+import { severityToLevel, scoreToLevel } from "./ai/risk.js";
+import { pillRiskOverrides, maxLevel as rulesMax } from "./ai/rules.js";
+import { buildDeterministicSummary } from "./ai/summary.js";
+import { explainFromEvidence } from "./ai/explainer.js";
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
@@ -251,6 +257,158 @@ app.get("/api/side-effects", (req, res) => {
   } else {
     // TODO: Call real medical information API
     res.status(501).json({ error: "Real API not implemented yet" });
+  }
+});
+
+app.post("/api/ai/classify-effects", async (req, res) => {
+  if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: "AI not configured" });
+  const { text, topK, minSim } = req.body || {};
+  const result = await classifyDiary(
+    text || "",
+    Number(topK) || 4,
+    typeof minSim === "number" ? minSim : 0.65
+  );
+  res.json({ ...result, labelSpace: LABELS });
+});
+
+// Helper: components of common pill types (expandable)
+const BC_COMPONENTS = {
+  combined: ["ethinyl estradiol", "levonorgestrel"],    // demo default
+  progestin_only: ["norethindrone"]                     // simple POP example
+};
+
+app.post("/api/ai/triage", async (req, res) => {
+  try {
+    const pillType = (req.body?.pillType || "combined").toLowerCase();
+    const symptoms = String(req.body?.symptoms || "").slice(0, 800);
+    const meds = Array.isArray(req.body?.meds) ? req.body.meds.slice(0, 16) : [];
+
+    // 1) Build the med list including pill components
+    const bc = BC_COMPONENTS[pillType] || BC_COMPONENTS.combined;
+    const allMeds = Array.from(new Set([...meds, ...bc]));
+
+    // 2) Interactions across all meds (ingredient-expanded)
+    const rxcuis = await namesToRxcuis(allMeds);
+    let interactions = [];
+    try {
+      const raw = await getInteractionsForRxcuiList(rxcuis);
+      interactions = raw.map(p => ({
+        a: p.drugA, b: p.drugB,
+        severity: p.severity || "",
+        level: severityToLevel(p.severity || ""),
+        source: p.source || "",
+        desc: (p.description || "").slice(0, 240)
+      }));
+    } catch { interactions = []; }
+
+    // 2.5) Apply rule-based overrides (adds or upgrades interactions consistently)
+    const overrides = pillRiskOverrides({ pillComponents: bc, meds: allMeds });
+    const merged = [...interactions];
+    // dedupe by pair+level preference (rule "high" should win)
+    for (const o of overrides) {
+      const i = merged.findIndex(p => samePair(p, o));
+      if (i === -1) merged.push(o);
+      else {
+        // prefer the higher of the two levels
+        merged[i].level = preferHigher(merged[i].level, o.level);
+        merged[i].source = merged[i].source ? `${merged[i].source}+Rule` : "Rule";
+        if (!merged[i].desc && o.desc) merged[i].desc = o.desc;
+      }
+    }
+    function samePair(a, b) { return norm(a.a) === norm(b.a) && norm(a.b) === norm(b.b); }
+    function norm(s) { return String(s || "").toLowerCase(); }
+    function preferHigher(a, b) { return rulesMax([a, b]); }
+
+    const finalInteractions = merged;
+
+    // 3) Symptom attribution via label evidence (embeddings)
+    await ensureIndex();
+    const hits = await searchRelevant(symptoms, 12);
+    // group top snippets per drug
+    const attribution = {};
+    for (const h of hits) {
+      const item = {
+        section: h.section,
+        score: +h.score.toFixed(3),
+        level: scoreToLevel(h.score),
+        text: h.text.slice(0, 220)
+      };
+      if (!attribution[h.drug]) attribution[h.drug] = [];
+      attribution[h.drug].push(item);
+    }
+    for (const d of Object.keys(attribution)) {
+      attribution[d].sort((a, b) => b.score - a.score);
+      attribution[d] = attribution[d].slice(0, 3);
+    }
+
+    // 4) Deterministic summary from final data
+    const summary = buildDeterministicSummary({
+      pillType, pillComponents: bc, meds, interactions: finalInteractions, attribution, symptoms
+    });
+
+    res.json({ pillType, meds, pillComponents: bc, interactions: finalInteractions, attribution, symptoms, summary });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "triage error" });
+  }
+});
+
+// Helper for overall level calculation
+function overallLevelOf(arr = []) {
+  const rank = { low: 1, medium: 2, high: 3 }; let best = "low";
+  for (const x of arr) { if ((rank[x.level] || 0) > (rank[best] || 0)) best = x.level; }
+  return best;
+}
+
+app.post("/api/ai/explain-interactions", async (req, res) => {
+  try {
+    const pillType = (req.body?.pillType || "combined").toLowerCase();
+    const bc = BC_COMPONENTS[pillType] || BC_COMPONENTS.combined;
+    const meds = Array.isArray(req.body?.meds) ? req.body.meds.slice(0, 16) : [];
+    const allDrugs = Array.from(new Set([...bc, ...meds]));
+    const symptoms = String(req.body?.symptoms || "");
+
+    // 1) RxNav interactions (ground truth)
+    const rxcuis = await namesToRxcuis(allDrugs);
+    const rawInteractions = await getInteractionsForRxcuiList(rxcuis);
+    const interactions = rawInteractions.map(p => ({
+      a: p.drugA, b: p.drugB, severity: p.severity || "", level: severityToLevel(p.severity || ""), source: p.source || ""
+    }));
+
+    // 2) Evidence snippets from our label index for symptoms (extractive only)
+    await ensureIndex();
+    const hits = symptoms ? await searchRelevant(symptoms, 18) : [];
+    const evidenceByDrug = {};
+    for (const h of hits) {
+      if (!evidenceByDrug[h.drug]) evidenceByDrug[h.drug] = [];
+      evidenceByDrug[h.drug].push({ section: h.section, text: h.text.slice(0, 240) });
+    }
+
+    // 3) Call OpenAI with HARD constraints (no new facts)
+    const allowedDrugs = Object.keys(evidenceByDrug);
+    const overallLevel = overallLevelOf(interactions);
+    let explanation = { overall_level: overallLevel, pairs: [], symptom_links: [] };
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        explanation = await explainFromEvidence({ interactions, symptoms, evidenceByDrug, overallLevel, allowedDrugs });
+      } catch (err) {
+        console.warn("[explainer] OpenAI call failed:", err.message);
+      }
+    }
+
+    // 4) Server-side validation: clamp to ground truth
+    explanation.overall_level = overallLevel; // cannot exceed our calc
+    explanation.pairs = (explanation.pairs || []).filter(p =>
+      interactions.find(x => x.a === p.a && x.b === p.b && x.level === p.level)
+    );
+    // symptom_links must quote from evidenceByDrug for that drug
+    explanation.symptom_links = (explanation.symptom_links || []).filter(s => {
+      const ev = (evidenceByDrug[s.caused_by] || []).some(e => e.text.includes(s.evidence_quote));
+      return ev;
+    });
+
+    res.json({ pillType, meds, pillComponents: bc, interactions, explanation, evidenceByDrug });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "explain error" });
   }
 });
 
