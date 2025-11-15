@@ -11,7 +11,8 @@ import { getLabelSnippets } from "./services/openfda.js";
 import { classifyDiary, LABELS } from "./ai/effectClassifier.js";
 import { ensureIndex, searchRelevant } from "./ai/labelsIndexer.js";
 import { severityToLevel, scoreToLevel } from "./ai/risk.js";
-import { summarizeTriage } from "./services/chat.js";
+import { pillRiskOverrides, maxLevel as rulesMax } from "./ai/rules.js";
+import { buildDeterministicSummary } from "./ai/summary.js";
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
@@ -299,6 +300,26 @@ app.post("/api/ai/triage", async (req, res) => {
       }));
     } catch { interactions = []; }
 
+    // 2.5) Apply rule-based overrides (adds or upgrades interactions consistently)
+    const overrides = pillRiskOverrides({ pillComponents: bc, meds: allMeds });
+    const merged = [...interactions];
+    // dedupe by pair+level preference (rule "high" should win)
+    for (const o of overrides) {
+      const i = merged.findIndex(p => samePair(p, o));
+      if (i === -1) merged.push(o);
+      else {
+        // prefer the higher of the two levels
+        merged[i].level = preferHigher(merged[i].level, o.level);
+        merged[i].source = merged[i].source ? `${merged[i].source}+Rule` : "Rule";
+        if (!merged[i].desc && o.desc) merged[i].desc = o.desc;
+      }
+    }
+    function samePair(a, b) { return norm(a.a) === norm(b.a) && norm(a.b) === norm(b.b); }
+    function norm(s) { return String(s || "").toLowerCase(); }
+    function preferHigher(a, b) { return rulesMax([a, b]); }
+
+    const finalInteractions = merged;
+
     // 3) Symptom attribution via label evidence (embeddings)
     await ensureIndex();
     const hits = await searchRelevant(symptoms, 12);
@@ -319,14 +340,12 @@ app.post("/api/ai/triage", async (req, res) => {
       attribution[d] = attribution[d].slice(0, 3);
     }
 
-    // 4) Compact result for summarizer + UI
-    const result = { pillType, meds, pillComponents: bc, interactions, attribution, symptoms };
-    let summary = "";
-    if (process.env.OPENAI_API_KEY) {
-      try { summary = await summarizeTriage(result); } catch { }
-    }
+    // 4) Deterministic summary from final data
+    const summary = buildDeterministicSummary({
+      pillType, pillComponents: bc, meds, interactions: finalInteractions, attribution, symptoms
+    });
 
-    res.json({ ...result, summary });
+    res.json({ pillType, meds, pillComponents: bc, interactions: finalInteractions, attribution, symptoms, summary });
   } catch (e) {
     res.status(500).json({ error: e.message || "triage error" });
   }

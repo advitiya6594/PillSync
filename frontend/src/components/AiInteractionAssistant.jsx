@@ -10,6 +10,13 @@ function Badge({ level }) {
   return <span className={`text-xs px-2 py-1 rounded-full border ${map[level] || "bg-gray-100 text-gray-700 border-gray-300"}`}>{level || "low"}</span>;
 }
 
+// Helper to compute overall level from interactions
+const rank = { high: 3, medium: 2, low: 1 };
+const overallLevel = (arr = []) => {
+  let best = "low"; for (const x of arr) { if ((rank[x.level] || 0) > (rank[best] || 0)) best = x.level; }
+  return best;
+};
+
 export default function AiInteractionAssistant() {
   const [pillType, setPillType] = useState("combined");
   const [meds, setMeds] = useState("rifampin, topiramate");
@@ -70,6 +77,15 @@ export default function AiInteractionAssistant() {
 
       {!out ? null : (
         <div className="space-y-5">
+          {out?.interactions && out.interactions.length > 0 && (
+            <div className="p-3 rounded-xl bg-gray-50 border">
+              <div className="text-sm font-medium">Overall interaction level</div>
+              <div className="mt-1">
+                <Badge level={overallLevel(out.interactions)} />
+              </div>
+            </div>
+          )}
+
           {out.summary && (
             <div className="p-3 rounded-xl bg-gray-50 border">
               <div className="text-sm font-medium mb-1">Summary</div>

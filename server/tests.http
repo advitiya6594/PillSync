@@ -65,7 +65,7 @@ Content-Type: application/json
 }
 
 ### AI Triage - Comprehensive analysis with interactions
-# Requires OPENAI_API_KEY in .env
+# Uses deterministic summary (no AI hallucinations)
 POST http://localhost:5050/api/ai/triage
 Content-Type: application/json
 
