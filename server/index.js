@@ -14,6 +14,7 @@ import { severityToLevel, scoreToLevel } from "./ai/risk.js";
 import { pillRiskOverrides, maxLevel } from "./ai/rules.js";
 import { buildDeterministicSummary } from "./ai/summary.js";
 import { explainFromEvidence } from "./ai/explainer.js";
+import { predictCyclePhase } from "./ai/cyclePredictor.js";
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
@@ -27,10 +28,6 @@ app.use(morgan("tiny"));
 // ----- boot logs -----
 console.log("[PillSync] Mode:", process.env.USE_DEMO_DATA === "true" ? "DEMO" : "REAL");
 console.log("[PillSync] Strict real mode:", process.env.STRICT_REAL_MODE === "true" ? "ON" : "OFF");
-
-// ----- routers (single source of truth) -----
-app.use("/api/interactions", interactionsRouter);
-app.use("/api/chat", chatRxNavRouter);
 
 // ----- helpers (demo heuristics) -----
 const rangeFor = (type) => {

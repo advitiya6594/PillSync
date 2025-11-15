@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Pill, Calendar, Activity, Shield, Sparkles, Heart } from "lucide-react";
+import { Pill, Calendar, Activity, Shield, Sparkles, Heart, User } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import CycleBridge from "../bridge/CycleBridge.jsx";
 import EffectsBridge from "../bridge/EffectsBridge.jsx";
@@ -11,9 +11,12 @@ import { PillReminder } from "./PillReminder";
 import { FertilityCalendar } from "./FertilityCalendar";
 import { FloatingShapes } from "./ArtisticIllustration";
 import { getUserProfile } from "../components/UserOnboarding.jsx";
+import UserProfile from "../components/UserProfile.jsx";
+import { Button } from "./ui/button";
 import diverseWomenArt from "/figma/2cc324443e5a26c23b89d8d960274aea9746c4a7.png";
 
 export default function FigmaLanding() {
+  const [showProfile, setShowProfile] = useState(false);
   const [packType, setPackType] = useState("combined_24_4");
   const [startDate, setStartDate] = useState("2025-11-01");
   const [cycleStartDate, setCycleStartDate] = useState(new Date(2025, 10, 1));
@@ -121,27 +124,44 @@ export default function FigmaLanding() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center gap-4 mb-4">
-            <motion.div
-              whileHover={{ scale: 1.1, rotate: 10 }}
-              animate={{ rotate: [0, 5, 0, -5, 0] }}
-              transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
-              className="p-4 bg-gradient-to-br from-[#E84C9E] to-[#8B7CE7] rounded-3xl shadow-xl cursor-pointer"
-            >
-              <Pill className="w-10 h-10 text-white" />
-            </motion.div>
-            <div>
-              <h1 className="text-4xl font-bold text-white flex items-center gap-3">
-                PillSync
-                <motion.div
-                  animate={{ rotate: [0, 360] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                >
-                  <Sparkles className="w-8 h-8 text-[#FFD54F]" />
-                </motion.div>
-              </h1>
-              <p className="text-lg text-[#E8F48C]">Your personalized birth control companion</p>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <motion.div
+                whileHover={{ scale: 1.1, rotate: 10 }}
+                animate={{ rotate: [0, 5, 0, -5, 0] }}
+                transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+                className="p-4 bg-gradient-to-br from-[#E84C9E] to-[#8B7CE7] rounded-3xl shadow-xl cursor-pointer"
+              >
+                <Pill className="w-10 h-10 text-white" />
+              </motion.div>
+              <div>
+                <h1 className="text-4xl font-bold text-white flex items-center gap-3">
+                  PillSync
+                  <motion.div
+                    animate={{ rotate: [0, 360] }}
+                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                  >
+                    <Sparkles className="w-8 h-8 text-[#FFD54F]" />
+                  </motion.div>
+                </h1>
+                <p className="text-lg text-[#E8F48C]">Your personalized birth control companion</p>
+              </div>
             </div>
+            
+            {/* Profile Button */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.3 }}
+            >
+              <Button
+                onClick={() => setShowProfile(true)}
+                className="bg-gradient-to-r from-[#E84C9E] to-[#8B7CE7] hover:from-[#E84C9E]/90 hover:to-[#8B7CE7]/90 text-white font-semibold px-6 py-6 rounded-2xl shadow-xl border border-[#E84C9E]/30 flex items-center gap-2"
+              >
+                <User className="w-5 h-5" />
+                My Profile
+              </Button>
+            </motion.div>
           </div>
           
           <motion.div
@@ -315,6 +335,9 @@ export default function FigmaLanding() {
           </motion.div>
         </motion.footer>
       </div>
+
+      {/* User Profile Modal */}
+      <UserProfile open={showProfile} onOpenChange={setShowProfile} />
     </div>
   );
 }
