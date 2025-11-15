@@ -11,7 +11,7 @@ import { getLabelSnippets } from "./services/openfda.js";
 import { classifyDiary, LABELS } from "./ai/effectClassifier.js";
 import { ensureIndex, searchRelevant } from "./ai/labelsIndexer.js";
 import { severityToLevel, scoreToLevel } from "./ai/risk.js";
-import { pillRiskOverrides, maxLevel as rulesMax } from "./ai/rules.js";
+import { pillRiskOverrides, maxLevel } from "./ai/rules.js";
 import { buildDeterministicSummary } from "./ai/summary.js";
 import { explainFromEvidence } from "./ai/explainer.js";
 
@@ -317,7 +317,7 @@ app.post("/api/ai/triage", async (req, res) => {
     }
     function samePair(a, b) { return norm(a.a) === norm(b.a) && norm(a.b) === norm(b.b); }
     function norm(s) { return String(s || "").toLowerCase(); }
-    function preferHigher(a, b) { return rulesMax([a, b]); }
+    function preferHigher(a, b) { return maxLevel([a, b]); }
 
     const finalInteractions = merged;
 
