@@ -33,13 +33,14 @@ export default function AiInteractionAssistant() {
         meds: meds.split(",").map(s => s.trim()).filter(Boolean),
         symptoms
       };
-      const r = await fetch(`${API}/api/ai/explain-interactions`, {
+      const r = await fetch(`${API}/api/chat/interaction-assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setOut(await r.json());
+      const j = await r.json();
+      setOut(j); // { message, data:{ overall, interactions, ... } }
     } catch (e) { setErr(e.message || "Request failed"); }
     finally { setLoading(false); }
   }
@@ -77,32 +78,25 @@ export default function AiInteractionAssistant() {
 
       {!out ? null : (
         <div className="space-y-5">
-          {out?.interactions && out.interactions.length > 0 && (
+          {out?.data?.overall && (
             <div className="p-3 rounded-xl bg-gray-50 border">
               <div className="text-sm font-medium">Overall interaction level</div>
               <div className="mt-1">
-                <Badge level={overallLevel(out.interactions)} />
+                <Badge level={out.data.overall} />
               </div>
             </div>
           )}
 
-          {out?.explanation && (
+          {out?.message && (
             <div className="p-3 rounded-xl bg-gray-50 border">
-              <div className="text-sm font-medium mb-1">AI Explanation</div>
-              <div className="text-sm text-gray-800">
-                Overall interaction level: {out.explanation.overall_level.toUpperCase()}.
-                {out.explanation.pairs?.length > 0 && (
-                  <span> Key interactions detected: {out.explanation.pairs.map(p => `${p.a} ↔ ${p.b}`).join(", ")}.</span>
-                )}
-              </div>
+              <div className="text-sm font-medium mb-1">AI Explanation (facts from RxNav)</div>
+              <div className="text-sm text-gray-800">{out.message}</div>
             </div>
           )}
 
-          <div>
-            <div className="text-sm font-medium mb-2">Interaction levels</div>
-            {!out.interactions?.length ? (
-              <div className="text-sm text-gray-600">No interactions returned by RxNav.</div>
-            ) : (
+          {out?.data?.interactions?.length > 0 && (
+            <div>
+              <div className="text-sm font-medium mb-2">Interaction details</div>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
@@ -114,7 +108,7 @@ export default function AiInteractionAssistant() {
                     </tr>
                   </thead>
                   <tbody>
-                    {out.interactions.map((p, i) => (
+                    {out.data.interactions.map((p, i) => (
                       <tr key={i} className="border-t">
                         <td className="py-1 pr-3">{p.a} ↔ {p.b}</td>
                         <td className="py-1 pr-3"><Badge level={p.level} /></td>
@@ -125,27 +119,8 @@ export default function AiInteractionAssistant() {
                   </tbody>
                 </table>
               </div>
-            )}
-          </div>
-
-          <div>
-            <div className="text-sm font-medium mb-2">Which medicine might explain these symptoms?</div>
-            {out?.explanation?.symptom_links?.length ? (
-              <>
-                <ul className="space-y-2 text-sm">
-                  {out.explanation.symptom_links.map((s, i) => (
-                    <li key={i} className="p-2 border rounded-lg bg-gray-50">
-                      <div className="font-semibold">{s.symptom} → {s.caused_by}</div>
-                      <div className="text-xs text-gray-700 mt-1">"{s.evidence_quote}"</div>
-                    </li>
-                  ))}
-                </ul>
-                <div className="text-[11px] text-gray-500 mt-2">Quotes are exact from drug labels we indexed.</div>
-              </>
-            ) : (
-              <div className="text-sm text-gray-600">No evidence-backed links found for these symptoms.</div>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="text-[11px] text-gray-500">Informational only — not medical advice.</div>
         </div>
