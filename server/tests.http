@@ -95,3 +95,35 @@ Content-Type: application/json
   "meds": ["topiramate"]
 }
 
+### AI Explain Interactions - Evidence-locked explanations
+# Requires OPENAI_API_KEY for AI explanations
+# Works without API key (returns empty explanation)
+POST http://localhost:5050/api/ai/explain-interactions
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "symptoms": "nausea and mood swings",
+  "meds": ["rifampin"]
+}
+
+### AI Explain - Multiple symptoms
+POST http://localhost:5050/api/ai/explain-interactions
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "symptoms": "headache, breast tenderness, and mood changes",
+  "meds": ["topiramate", "ibuprofen"]
+}
+
+### AI Explain - No symptoms (interactions only)
+POST http://localhost:5050/api/ai/explain-interactions
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "symptoms": "",
+  "meds": ["rifampin", "st. john's wort"]
+}
+

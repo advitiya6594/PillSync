@@ -33,7 +33,7 @@ export default function AiInteractionAssistant() {
         meds: meds.split(",").map(s => s.trim()).filter(Boolean),
         symptoms
       };
-      const r = await fetch(`${API}/api/ai/triage`, {
+      const r = await fetch(`${API}/api/ai/explain-interactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
@@ -86,10 +86,15 @@ export default function AiInteractionAssistant() {
             </div>
           )}
 
-          {out.summary && (
+          {out?.explanation && (
             <div className="p-3 rounded-xl bg-gray-50 border">
-              <div className="text-sm font-medium mb-1">Summary</div>
-              <div className="text-sm text-gray-800">{out.summary}</div>
+              <div className="text-sm font-medium mb-1">AI Explanation</div>
+              <div className="text-sm text-gray-800">
+                Overall interaction level: {out.explanation.overall_level.toUpperCase()}.
+                {out.explanation.pairs?.length > 0 && (
+                  <span> Key interactions detected: {out.explanation.pairs.map(p => `${p.a} ↔ ${p.b}`).join(", ")}.</span>
+                )}
+              </div>
             </div>
           )}
 
@@ -125,23 +130,20 @@ export default function AiInteractionAssistant() {
 
           <div>
             <div className="text-sm font-medium mb-2">Which medicine might explain these symptoms?</div>
-            {!out.attribution || !Object.keys(out.attribution).length ? (
-              <div className="text-sm text-gray-600">No strong label matches found.</div>
+            {out?.explanation?.symptom_links?.length ? (
+              <>
+                <ul className="space-y-2 text-sm">
+                  {out.explanation.symptom_links.map((s, i) => (
+                    <li key={i} className="p-2 border rounded-lg bg-gray-50">
+                      <div className="font-semibold">{s.symptom} → {s.caused_by}</div>
+                      <div className="text-xs text-gray-700 mt-1">"{s.evidence_quote}"</div>
+                    </li>
+                  ))}
+                </ul>
+                <div className="text-[11px] text-gray-500 mt-2">Quotes are exact from drug labels we indexed.</div>
+              </>
             ) : (
-              <div className="space-y-3">
-                {Object.entries(out.attribution).map(([drug, items]) => (
-                  <div key={drug} className="p-3 border rounded-xl bg-gray-50">
-                    <div className="text-sm font-semibold mb-1">{drug}</div>
-                    <ul className="space-y-1">
-                      {items.map((it, idx) => (
-                        <li key={idx} className="text-xs text-gray-800">
-                          <Badge level={it.level} /> <b>{it.section}</b> · score {it.score} — "{it.text}…"
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
+              <div className="text-sm text-gray-600">No evidence-backed links found for these symptoms.</div>
             )}
           </div>
 
