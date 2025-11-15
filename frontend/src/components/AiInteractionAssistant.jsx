@@ -33,14 +33,14 @@ export default function AiInteractionAssistant() {
         meds: meds.split(",").map(s => s.trim()).filter(Boolean),
         symptoms
       };
-      const r = await fetch(`${API}/api/chat/interaction-assistant`, {
+      const r = await fetch(`${API}/api/ai/explain-interactions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
-      setOut(j); // { message, data:{ overall, interactions, ... } }
+      setOut(j); // { pillType, meds, pillComponents, interactions, explanation: { overall_level }, advice }
     } catch (e) { setErr(e.message || "Request failed"); }
     finally { setLoading(false); }
   }
@@ -78,49 +78,45 @@ export default function AiInteractionAssistant() {
 
       {!out ? null : (
         <div className="space-y-5">
-          {out?.data?.overall && (
+          {out?.explanation?.overall_level && (
             <div className="p-3 rounded-xl bg-gray-50 border">
               <div className="text-sm font-medium">Overall interaction level</div>
               <div className="mt-1">
-                <Badge level={out.data.overall} />
+                <Badge level={out.explanation.overall_level} />
               </div>
             </div>
           )}
 
-          {out?.message && (
-            <div className="p-3 rounded-xl bg-gray-50 border">
-              <div className="text-sm font-medium mb-1">AI Explanation (facts from RxNav)</div>
-              <div className="text-sm text-gray-800">{out.message}</div>
-            </div>
-          )}
-
-          {out?.data?.interactions?.length > 0 && (
-            <div>
-              <div className="text-sm font-medium mb-2">Interaction details</div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-600">
-                      <th className="py-1 pr-3">Pair</th>
-                      <th className="py-1 pr-3">Level</th>
-                      <th className="py-1 pr-3">Source</th>
-                      <th className="py-1">Note</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {out.data.interactions.map((p, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="py-1 pr-3">{p.a} ↔ {p.b}</td>
-                        <td className="py-1 pr-3"><Badge level={p.level} /></td>
-                        <td className="py-1 pr-3">{p.source || "-"}</td>
-                        <td className="py-1">{p.desc}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {/* Symptom Summary & Tips (deterministic) */}
+          {out?.advice && out.advice.length > 0 ? (
+            <div className="mt-4 rounded-xl border bg-gray-50 p-4">
+              <div className="text-sm font-semibold mb-2">Symptom summary & tips</div>
+              <ul className="space-y-3">
+                {out.advice.map((a, i) => (
+                  <li key={i} className="rounded-lg border bg-white p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{a.drug}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full border bg-amber-50 text-amber-900 border-amber-300 capitalize">
+                        {a.level}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-700 mt-1">{a.reason}</div>
+                    {a.matches?.length ? (
+                      <div className="text-xs text-gray-700 mt-1">Matched symptoms: {a.matches.join(", ")}</div>
+                    ) : null}
+                    <ul className="list-disc pl-5 mt-2 text-sm space-y-1">
+                      {a.tips.map((t, idx) => (
+                        <li key={idx}>{t}</li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+              <div className="text-[11px] text-gray-500 mt-2">
+                Informational only — not medical advice. Please consult your clinician if symptoms persist or worsen.
               </div>
             </div>
-          )}
+          ) : null}
 
           <div className="text-[11px] text-gray-500">Informational only — not medical advice.</div>
         </div>

@@ -7,6 +7,7 @@ import EffectsBridge from "../bridge/EffectsBridge.jsx";
 import InteractionsBridge from "../bridge/InteractionsBridge.jsx";
 import DiaryTagger from "../components/DiaryTagger.jsx";
 import AiInteractionAssistant from "../components/AiInteractionAssistant.jsx";
+import { SHOW_SIDE_EFFECT_TAGGER } from "../lib/flags.js";
 import { PillReminder } from "./PillReminder";
 import { FertilityCalendar } from "./FertilityCalendar";
 import { FloatingShapes } from "./ArtisticIllustration";
@@ -220,14 +221,16 @@ export default function FigmaLanding() {
                 </div>
               </div>
               
-              {/* AI Diary Tagger */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-              >
-                <DiaryTagger />
-              </motion.div>
+              {/* AI Diary Tagger (hidden by default - set VITE_SHOW_SIDE_EFFECT_TAGGER=true in .env to enable) */}
+              {SHOW_SIDE_EFFECT_TAGGER && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <DiaryTagger />
+                </motion.div>
+              )}
             </TabsContent>
 
             <TabsContent value="medications" className="space-y-6">

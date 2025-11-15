@@ -17,7 +17,7 @@ export function pillRiskOverrides({ pillComponents = [], meds = [] }) {
   return out;
 }
 
-export function maxLevel(levels = []) { const r = { low: 1, medium: 2, high: 3 }; let best = "low"; for (const l of levels) { if ((r[l] || 0) > (r[best] || 0)) best = l; } return best; }
+export function maxLevel(levels = []) { const r = { low: 1, moderate: 2, medium: 2, high: 3 }; let best = "low"; for (const l of levels) { if ((r[l] || 0) > (r[best] || 0)) best = l; } return best; }
 const toSet = arr => new Set((arr || []).map(s => String(s).toLowerCase().trim()).filter(Boolean));
 const intersect = (S, arr) => new Set(arr.filter(x => S.has(x)));
 const cap = s => s.split(" ").map(w => w[0].toUpperCase() + w.slice(1)).join(" ");

@@ -14,6 +14,7 @@ import { severityToLevel, scoreToLevel } from "./ai/risk.js";
 import { pillRiskOverrides, maxLevel } from "./ai/rules.js";
 import { buildDeterministicSummary } from "./ai/summary.js";
 import { explainFromEvidence } from "./ai/explainer.js";
+import { applyCustomRulebook, normalizeDrugName, buildSymptomAdvice } from "./ai/customRules.js";
 import interactionsRouter from "./routes/interactions.js";
 import chatRxNavRouter from "./routes/chatRxNav.js";
 
@@ -378,49 +379,58 @@ app.post("/api/ai/explain-interactions", async (req, res) => {
     const overrides = pillRiskOverrides({ pillComponents: bc, meds: allDrugs });
 
     // 3) Final interactions used everywhere
-    const finalInteractions = dedupeAndPreferHigh([...rxnavPairs, ...overrides]);
+    let finalInteractions = dedupeAndPreferHigh([...rxnavPairs, ...overrides]);
+
+    // >>> NEW: apply custom rulebook (takes precedence over everything)
+    const { forcedPairs, forcedLevels } = applyCustomRulebook({ pillComponents: bc, meds });
+    finalInteractions = dedupePreferRulebook([...finalInteractions, ...forcedPairs]);
+
+    // >>> NEW: if nothing came back, synthesize a LOW record per med vs pill for UX
+    if (finalInteractions.length === 0 && meds.length) {
+      const pillName = pillType === "progestin_only" ? "Progestin-only pill" : "Combined pill";
+      finalInteractions.push(...meds.map(m => ({
+        a: capitalize(m), b: pillName, level: "low",
+        source: "RxNav (no pairs)", desc: "RxNav returned no interacting pairs; treated as LOW."
+      })));
+    }
 
     // 4) Evidence snippets for symptom explanation (extractive only)
+    // filter OUT any drug that's forced to "low" (no need to analyze symptoms for safe drugs)
+    const lowForced = new Set([...forcedLevels.entries()].filter(([, lvl]) => (lvl || "").toLowerCase() === "low").map(([drug]) => drug));
     await ensureIndex();
     const hits = symptoms ? await searchRelevant(symptoms, 18) : [];
     const evidenceByDrug = {};
     for (const h of hits) {
+      const dn = normalizeDrugName(h.drug);
+      if (lowForced.has(dn)) continue;            // skip linking for forced LOW drugs (e.g., ibuprofen)
       (evidenceByDrug[h.drug] ||= []).push({ section: h.section, text: h.text.slice(0, 240) });
     }
 
     // 5) Overall level computed from finalInteractions (authoritative)
     const overallLevel = maxLevel(finalInteractions.map(x => x.level));
 
-    // 6) Ask OpenAI to explain, but HARD-CLAMP to our facts
-    let explanation = { overall_level: overallLevel, pairs: [], symptom_links: [] };
-    if (process.env.OPENAI_API_KEY) {
-      try {
-        explanation = await explainFromEvidence({
-          interactions: finalInteractions,
-          symptoms,
-          evidenceByDrug,
-          overallLevel,
-          allowedDrugs: Object.keys(evidenceByDrug)
-        });
-      } catch (err) {
-        console.warn("[explainer] OpenAI call failed:", err.message);
-      }
-    }
-    // Clamp again (no drift):
-    explanation.overall_level = overallLevel;
-    explanation.pairs = (explanation.pairs || []).filter(p =>
-      finalInteractions.find(x => x.a === p.a && x.b === p.b && x.level === p.level)
-    );
-    explanation.symptom_links = (explanation.symptom_links || []).filter(s => {
-      const ev = (evidenceByDrug[s.caused_by] || []).some(e => e.text.includes(s.evidence_quote));
-      return ev;
+    // 6) Build symptom-matched advice (deterministic, user-friendly)
+    const advice = buildSymptomAdvice({
+      symptomsText: symptoms,
+      meds,
+      forcedLevels,
+      pillComponents: bc
     });
 
-    res.json({ pillType, meds, pillComponents: bc, interactions: finalInteractions, explanation, evidenceByDrug });
+    res.json({
+      pillType,
+      meds,
+      pillComponents: bc,
+      interactions: finalInteractions,
+      explanation: { overall_level: overallLevel },
+      advice
+    });
   } catch (e) {
     res.status(500).json({ error: e.message || "explain error" });
   }
 });
+
+function capitalize(s) { return String(s || "").split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "); }
 
 function dedupeAndPreferHigh(arr) {
   const key = (p) => `${p.a.toLowerCase()}|${p.b.toLowerCase()}`;
@@ -432,6 +442,22 @@ function dedupeAndPreferHigh(arr) {
     else if ((rank[p.level] || 0) > (rank[map.get(k).level] || 0)) {
       map.set(k, p);
     }
+  }
+  return Array.from(map.values());
+}
+
+function dedupePreferRulebook(arr) {
+  // rulebook wins, then higher level wins
+  const rank = { low: 1, moderate: 2, medium: 2, high: 3 };
+  const isRule = (p) => (p.source || "").toLowerCase().includes("customrule");
+  const key = (p) => `${p.a.toLowerCase()}|${p.b.toLowerCase()}`;
+  const map = new Map();
+  for (const p of arr) {
+    const k = key(p);
+    if (!map.has(k)) { map.set(k, p); continue; }
+    const cur = map.get(k);
+    if (isRule(p) && !isRule(cur)) { map.set(k, p); continue; }
+    if ((rank[(p.level || "").toLowerCase()] || 0) > (rank[(cur.level || "").toLowerCase()] || 0)) map.set(k, p);
   }
   return Array.from(map.values());
 }
