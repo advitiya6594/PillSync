@@ -6,7 +6,7 @@ import { CycleTracker } from "./components/CycleTracker";
 import { MedicationChecker } from "./components/MedicationChecker";
 import { CurrentEffects } from "./components/CurrentEffects";
 import { PillReminder } from "./components/PillReminder";
-import { FertilityCalendar } from "./components/FertilityCalendar";
+import { FertilityCalendar } from "./FertilityCalendar";
 import { ArtisticIllustration, FloatingShapes } from "./components/ArtisticIllustration";
 import diverseWomenArt from "/figma/2cc324443e5a26c23b89d8d960274aea9746c4a7.png";
 
