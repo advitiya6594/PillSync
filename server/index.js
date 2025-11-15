@@ -14,9 +14,13 @@ import { severityToLevel, scoreToLevel } from "./ai/risk.js";
 import { pillRiskOverrides, maxLevel } from "./ai/rules.js";
 import { buildDeterministicSummary } from "./ai/summary.js";
 import { explainFromEvidence } from "./ai/explainer.js";
+<<<<<<< HEAD
 import { applyCustomRulebook, normalizeDrugName, buildSymptomAdvice } from "./ai/customRules.js";
 import interactionsRouter from "./routes/interactions.js";
 import chatRxNavRouter from "./routes/chatRxNav.js";
+=======
+import { predictCyclePhase } from "./ai/cyclePredictor.js";
+>>>>>>> dec3f9c9ee5cceab9a5fbd963a6dcaa896e42dbd
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
@@ -30,10 +34,6 @@ app.use(morgan("tiny"));
 // ----- boot logs -----
 console.log("[PillSync] Mode:", process.env.USE_DEMO_DATA === "true" ? "DEMO" : "REAL");
 console.log("[PillSync] Strict real mode:", process.env.STRICT_REAL_MODE === "true" ? "ON" : "OFF");
-
-// ----- routers (single source of truth) -----
-app.use("/api/interactions", interactionsRouter);
-app.use("/api/chat", chatRxNavRouter);
 
 // ----- helpers (demo heuristics) -----
 const rangeFor = (type) => {
@@ -264,6 +264,62 @@ app.get("/api/side-effects", (req, res) => {
   } else {
     // TODO: Call real medical information API
     res.status(501).json({ error: "Real API not implemented yet" });
+  }
+});
+
+// AI-powered cycle phase prediction endpoint
+const predictCycleBody = z.object({
+  periodStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  periodEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  periodOngoing: z.boolean().optional().default(false),
+  pillType: z.enum(["combined_21_7", "combined_24_4", "continuous_28", "progestin_only"]),
+  pillStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+});
+
+app.post("/api/ai/predict-cycle-phase", async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(400).json({ error: "OpenAI API key not configured" });
+    }
+
+    const parse = predictCycleBody.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({ error: "Invalid request body", details: parse.error.flatten() });
+    }
+
+    const { periodStartDate, periodEndDate, periodOngoing, pillType, pillStartDate } = parse.data;
+
+    // First get the cycle info (pack day, suppression, etc.)
+    const cycleInfoData = cycleInfo(pillType, pillStartDate);
+
+    // Then use OpenAI to predict the phase
+    const prediction = await predictCyclePhase({
+      periodStartDate,
+      periodEndDate: periodEndDate || null,
+      periodOngoing: periodOngoing || false,
+      pillType,
+      pillStartDate,
+      packDay: cycleInfoData.packDay,
+      isActivePill: cycleInfoData.isActivePill,
+      suppression: cycleInfoData.suppression
+    });
+
+    res.json({
+      ...prediction,
+      packDay: cycleInfoData.packDay,
+      packType: pillType,
+      isActivePill: cycleInfoData.isActivePill,
+      suppression: cycleInfoData.suppression,
+      periodStartDate,
+      periodEndDate: periodEndDate || null,
+      periodOngoing: periodOngoing || false
+    });
+  } catch (error) {
+    console.error("[API] predict-cycle-phase error:", error);
+    res.status(500).json({ 
+      error: error.message || "Failed to predict cycle phase",
+      fallback: "AI prediction unavailable" 
+    });
   }
 });
 
