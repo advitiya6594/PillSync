@@ -11,10 +11,9 @@ import { getLabelSnippets } from "./services/openfda.js";
 import { classifyDiary, LABELS } from "./ai/effectClassifier.js";
 import { ensureIndex, searchRelevant } from "./ai/labelsIndexer.js";
 import { severityToLevel, scoreToLevel } from "./ai/risk.js";
-import { pillRiskOverrides, maxLevel as rulesMax } from "./ai/rules.js";
+import { pillRiskOverrides, maxLevel } from "./ai/rules.js";
 import { buildDeterministicSummary } from "./ai/summary.js";
 import { explainFromEvidence } from "./ai/explainer.js";
-import { predictCyclePhase } from "./ai/cyclePredictor.js";
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5050;
@@ -28,6 +27,10 @@ app.use(morgan("tiny"));
 // ----- boot logs -----
 console.log("[PillSync] Mode:", process.env.USE_DEMO_DATA === "true" ? "DEMO" : "REAL");
 console.log("[PillSync] Strict real mode:", process.env.STRICT_REAL_MODE === "true" ? "ON" : "OFF");
+
+// ----- routers (single source of truth) -----
+app.use("/api/interactions", interactionsRouter);
+app.use("/api/chat", chatRxNavRouter);
 
 // ----- helpers (demo heuristics) -----
 const rangeFor = (type) => {
@@ -374,7 +377,7 @@ app.post("/api/ai/triage", async (req, res) => {
     }
     function samePair(a, b) { return norm(a.a) === norm(b.a) && norm(a.b) === norm(b.b); }
     function norm(s) { return String(s || "").toLowerCase(); }
-    function preferHigher(a, b) { return rulesMax([a, b]); }
+    function preferHigher(a, b) { return maxLevel([a, b]); }
 
     const finalInteractions = merged;
 
@@ -409,13 +412,6 @@ app.post("/api/ai/triage", async (req, res) => {
   }
 });
 
-// Helper for overall level calculation
-function overallLevelOf(arr = []) {
-  const rank = { low: 1, medium: 2, high: 3 }; let best = "low";
-  for (const x of arr) { if ((rank[x.level] || 0) > (rank[best] || 0)) best = x.level; }
-  return best;
-}
-
 app.post("/api/ai/explain-interactions", async (req, res) => {
   try {
     const pillType = (req.body?.pillType || "combined").toLowerCase();
@@ -424,50 +420,75 @@ app.post("/api/ai/explain-interactions", async (req, res) => {
     const allDrugs = Array.from(new Set([...bc, ...meds]));
     const symptoms = String(req.body?.symptoms || "");
 
-    // 1) RxNav interactions (ground truth)
+    // 1) RxNav (ground truth)
     const rxcuis = await namesToRxcuis(allDrugs);
     const rawInteractions = await getInteractionsForRxcuiList(rxcuis);
-    const interactions = rawInteractions.map(p => ({
-      a: p.drugA, b: p.drugB, severity: p.severity || "", level: severityToLevel(p.severity || ""), source: p.source || ""
+    const rxnavPairs = rawInteractions.map(p => ({
+      a: p.drugA, b: p.drugB,
+      level: severityToLevel(p.severity || ""), source: p.source || "", desc: (p.description || "").slice(0, 240)
     }));
 
-    // 2) Evidence snippets from our label index for symptoms (extractive only)
+    // 2) Rule overrides for classic pill reducers (SAME as checker)
+    const overrides = pillRiskOverrides({ pillComponents: bc, meds: allDrugs });
+
+    // 3) Final interactions used everywhere
+    const finalInteractions = dedupeAndPreferHigh([...rxnavPairs, ...overrides]);
+
+    // 4) Evidence snippets for symptom explanation (extractive only)
     await ensureIndex();
     const hits = symptoms ? await searchRelevant(symptoms, 18) : [];
     const evidenceByDrug = {};
     for (const h of hits) {
-      if (!evidenceByDrug[h.drug]) evidenceByDrug[h.drug] = [];
-      evidenceByDrug[h.drug].push({ section: h.section, text: h.text.slice(0, 240) });
+      (evidenceByDrug[h.drug] ||= []).push({ section: h.section, text: h.text.slice(0, 240) });
     }
 
-    // 3) Call OpenAI with HARD constraints (no new facts)
-    const allowedDrugs = Object.keys(evidenceByDrug);
-    const overallLevel = overallLevelOf(interactions);
+    // 5) Overall level computed from finalInteractions (authoritative)
+    const overallLevel = maxLevel(finalInteractions.map(x => x.level));
+
+    // 6) Ask OpenAI to explain, but HARD-CLAMP to our facts
     let explanation = { overall_level: overallLevel, pairs: [], symptom_links: [] };
     if (process.env.OPENAI_API_KEY) {
       try {
-        explanation = await explainFromEvidence({ interactions, symptoms, evidenceByDrug, overallLevel, allowedDrugs });
+        explanation = await explainFromEvidence({
+          interactions: finalInteractions,
+          symptoms,
+          evidenceByDrug,
+          overallLevel,
+          allowedDrugs: Object.keys(evidenceByDrug)
+        });
       } catch (err) {
         console.warn("[explainer] OpenAI call failed:", err.message);
       }
     }
-
-    // 4) Server-side validation: clamp to ground truth
-    explanation.overall_level = overallLevel; // cannot exceed our calc
+    // Clamp again (no drift):
+    explanation.overall_level = overallLevel;
     explanation.pairs = (explanation.pairs || []).filter(p =>
-      interactions.find(x => x.a === p.a && x.b === p.b && x.level === p.level)
+      finalInteractions.find(x => x.a === p.a && x.b === p.b && x.level === p.level)
     );
-    // symptom_links must quote from evidenceByDrug for that drug
     explanation.symptom_links = (explanation.symptom_links || []).filter(s => {
       const ev = (evidenceByDrug[s.caused_by] || []).some(e => e.text.includes(s.evidence_quote));
       return ev;
     });
 
-    res.json({ pillType, meds, pillComponents: bc, interactions, explanation, evidenceByDrug });
+    res.json({ pillType, meds, pillComponents: bc, interactions: finalInteractions, explanation, evidenceByDrug });
   } catch (e) {
     res.status(500).json({ error: e.message || "explain error" });
   }
 });
+
+function dedupeAndPreferHigh(arr) {
+  const key = (p) => `${p.a.toLowerCase()}|${p.b.toLowerCase()}`;
+  const rank = { low: 1, medium: 2, high: 3 };
+  const map = new Map();
+  for (const p of arr) {
+    const k = key(p);
+    if (!map.has(k)) map.set(k, p);
+    else if ((rank[p.level] || 0) > (rank[map.get(k).level] || 0)) {
+      map.set(k, p);
+    }
+  }
+  return Array.from(map.values());
+}
 
 // 404 + error handler
 app.use((req, res) => res.status(404).json({ error: "Not found", path: req.path }));

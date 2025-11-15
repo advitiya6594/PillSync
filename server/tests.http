@@ -127,3 +127,41 @@ Content-Type: application/json
   "meds": ["rifampin", "st. john's wort"]
 }
 
+### Interactions Check (Single Source of Truth)
+POST http://localhost:5050/api/interactions/check
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "meds": ["rifampin"]
+}
+
+### Interactions Check - Multiple medications
+POST http://localhost:5050/api/interactions/check
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "meds": ["rifampin", "topiramate", "ibuprofen"]
+}
+
+### Chat Assistant - Deterministic (No Hallucinations)
+POST http://localhost:5050/api/chat/interaction-assistant
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "meds": ["rifampin"],
+  "symptoms": "headache and nausea"
+}
+
+### Chat Assistant - No medications
+POST http://localhost:5050/api/chat/interaction-assistant
+Content-Type: application/json
+
+{
+  "pillType": "combined",
+  "meds": [],
+  "symptoms": "breast tenderness"
+}
+
